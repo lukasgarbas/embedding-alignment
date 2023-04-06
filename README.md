@@ -44,9 +44,8 @@ classifier = EmbeddingAlignmentClassifier(document_embeddings,
                                           train_corpus=corpus.train,
                                           label_type=label_type,
                                           label_dictionary=label_dict,
-                                          use_memory=False,
-                                          mix_memory=True,
-                                          knn=5)
+                                          knn=5,  # k for knn predictions
+                                          )
 
 # initialize trainer
 trainer = ModelTrainer(classifier, corpus)
