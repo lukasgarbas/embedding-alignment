@@ -117,7 +117,7 @@ TODO: run multitask_alignment.py. Find out why CSVClassificationCorpus(in_memory
 
 - preliminary: multitask electra-small (just 2 epochs). Current walkaround when loading bias dataset `CSVClassificationCorpus(in_memory=True, tokenizer=SpaceTokenizer())`
 
-| model          | details                         | bias dev | bias test | publisher dev | publisher test |
-|----------------|---------------------------------|----------|-----------|---------------|----------------|
-| electra-small  | cae + multitask (just 2 epochs) | 92.5     | 65.0      | 77.8          | 0.0            |
+| model          | details                     | params                     | bias dev | bias test | publisher dev | publisher test |
+|----------------|-----------------------------|----------------------------|----------|-----------|---------------|----------------|
+| electra-small  | cae (baseline) + multitask  | lr=5e-5, bsz=32, epochs=10 | 94.4     | 64.2      | 86.35         | 0.0            |
 
