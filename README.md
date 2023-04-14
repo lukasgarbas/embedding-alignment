@@ -62,21 +62,24 @@ trainer.fine_tune('resources/taggers/small-transformer-alignment',
 
 - parameters: learning rate 5e-5, batch size 32, epochs 10
 
-| model           | details             | Trec 6   | Trec 50   |
-|-----------------|---------------------|----------|-----------|
-| electra-small   | fine-tuning         | 96.2     | 89.8      |
-| electra-small   | CEA                 | 96.2     | 84.0      |
-| electra-small   | CEA + memory        | 96.0     | 81.4      |
-| electra-small   | CEA + mixed memory  | 96.4     | 84.8      |
-| --------------- | ------------------- | -------- | --------- |
-| bert-base       | fine-tuning         | 97.4     | 92.6      |
-| bert-base       | CEA                 | 97.2     | 90.6      |
-| bert-base       | CEA + memory        | 96.4     | 90.6      |
-| bert-base       | CEA + mixed memory  | 97.2     | 90.8      |
+| model           | details                | Trec 6   | Trec 50   |
+|-----------------|------------------------|----------|-----------|
+| electra-small   | fine-tuning            | 96.2     | 89.8      |
+| electra-small   | CEA (batch-level)      | 96.2     | 84.0      |
+| electra-small   | CEA + memory           | 96.0     | 81.4      |
+| electra-small   | CEA + mixed memory     | 96.4     | 84.8      |
+| electra-small   | CEA + datapoint memory | 96.4     | 85.2      |
+| --------------- | -------------------    | -------- | --------- |
+| bert-base       | fine-tuning            | 97.4     | 92.6      |
+| bert-base       | CEA (batch-level)      | 97.2     | 90.6      |
+| bert-base       | CEA + memory           | 96.4     | 90.6      |
+| bert-base       | CEA + mixed memory     | 97.2     | 90.8      |
+| bert-base       | CEA + datapoint memory | 97.4     | 92.4      |
 
 Takeaway:
 - CEA can barely recreate scores of fine-tuning (i.e. cea scores slightly lower or the same as fine-tuning).
 - Hard with a lot of classes (TREC_50); this can be due to my implementation where sampling for sentence pairs is done inside a batch.
+- __CEA + datapoint memory gives best results 👈__
 
 
 # Political Bias Dataset
