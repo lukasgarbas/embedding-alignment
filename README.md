@@ -90,13 +90,13 @@ Takeaway:
 - batch + all comparisons is OK
 - datapoint memory + all comparisons needs a lot of gpu memory
 
-| model           | details                     | Trec 50 | Comment                   |
-|-----------------|-----------------------------|---------|---------------------------| 
-| electra-small   | fine-tuning                 | 89.8    |                           |
-| electra-small   | CEA (batch)                 | 82.8    |                           |
-| electra-small   | CEA (batch) + all negatives | 86.0    | 👈 this works ok and fast |
-| electra-small   | CEA memory                  | 85.0    |                           |
-| electra=small   | CEA memory + all negatives  | 88.2    | hard to fit in memory     |
+| model           | details                     | Trec 50 | Comment                                                                                                                   |
+|-----------------|-----------------------------|---------|---------------------------------------------------------------------------------------------------------------------------| 
+| electra-small   | fine-tuning                 | 89.8    |                                                                                                                           |
+| electra-small   | CEA (batch)                 | 82.8    |                                                                                                                           |
+| electra-small   | CEA (batch) + all negatives | 86.0    | 👈 this works ok. embedd a full batch and comapre distances between all pairs. needs 15 epochs (slightly longer to train) |
+| electra-small   | CEA memory                  | 85.0    |                                                                                                                           |
+| electra=small   | CEA memory + all negatives  | 88.2    | hard to fit in memory                                                                                                     |
 
 # Political Bias Dataset
 
