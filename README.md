@@ -6,7 +6,7 @@ Class-driven Embedding Alignment Model (CEA). Learn embeddings that maximize the
 git clone https://github.com/flairNLP/flair.git
 cd flair
 
-# switch to cea branch
+# switch to cea branch <- the latest model is still in this repo
 git checkout embedding-alignment
 
 python3 -m venv flair-env
@@ -18,7 +18,7 @@ pip install -r requirements.txt
 ```python3
 from flair.datasets import TREC_6
 from flair.embeddings import TransformerDocumentEmbeddings
-from flair.models import EmbeddingAlignmentClassifier
+from alignment_model import CEA
 from flair.trainers import ModelTrainer
 
 # specify gpu device
@@ -40,12 +40,14 @@ print(corpus)
 document_embeddings = TransformerDocumentEmbeddings('google/electra-small-discriminator', fine_tune=True)
 
 # create embedding alignment model
-classifier = EmbeddingAlignmentClassifier(document_embeddings,
-                                          train_corpus=corpus.train,
-                                          label_type=label_type,
-                                          label_dictionary=label_dict,
-                                          knn=5,  # k for knn predictions
-                                          )
+classifier = CEA(document_embeddings,
+                 train_corpus=corpus.train,
+                 label_type=label_type,
+                 label_dictionary=label_dict,
+                 use_memory=False,
+                 use_all_negatives=True,
+                 knn=5,  # k for knn predictions
+                 )
 
 # initialize trainer
 trainer = ModelTrainer(classifier, corpus)
@@ -65,10 +67,10 @@ trainer.fine_tune('resources/taggers/small-transformer-alignment',
 | model           | details                | Trec 6   | Trec 50   |
 |-----------------|------------------------|----------|-----------|
 | electra-small   | fine-tuning            | 96.2     | 89.8      |
-| electra-small   | CEA (batch-level)      | 96.2     | 84.0      |
+| electra-small   | CEA (batch-level)      | 96.2     | 83.0      |
 | electra-small   | CEA + memory           | 96.0     | 81.4      |
-| electra-small   | CEA + mixed memory     | 96.4     | 84.8      |
-| electra-small   | CEA + datapoint memory | 96.4     | 85.2      |
+| electra-small   | CEA + mixed memory     | 96.4     | 84.5      |
+| electra-small   | CEA + datapoint memory | 96.4     | 85.0      |
 | --------------- | -------------------    | -------- | --------- |
 | bert-base       | fine-tuning            | 97.4     | 92.6      |
 | bert-base       | CEA (batch-level)      | 97.2     | 90.6      |
@@ -81,6 +83,20 @@ Takeaway:
 - Hard with a lot of classes (TREC_50); this can be due to my implementation where sampling for sentence pairs is done inside a batch.
 - __CEA + datapoint memory gives best results 👈__
 
+## Follow-up on using all negatives
+
+Takeaway:
+- doing more comparisons (creating as many pairs as possible) works better
+- batch + all comparisons is OK
+- datapoint memory + all comparisons needs a lot of gpu memory
+
+| model           | details                     | Trec 50 | Comment                   |
+|-----------------|-----------------------------|---------|---------------------------| 
+| electra-small   | fine-tuning                 | 89.8    |                           |
+| electra-small   | CEA (batch)                 | 82.8    |                           |
+| electra-small   | CEA (batch) + all negatives | 86.0    | 👈 this works ok and fast |
+| electra-small   | CEA memory                  | 85.0    |                           |
+| electra=small   | CEA memory + all negatives  | 88.2    | hard to fit in memory     |
 
 # Political Bias Dataset
 
@@ -101,16 +117,16 @@ Takeaway:
 
 # Results and TODOs
 
-| model           | details              | dev F1   | test F1   |
-|-----------------|----------------------|----------|-----------|
-| electra-small   | fine-tuning          | 94.34    | 67.6      |
-| electra-small   | CEA                  | 95.0     | 67.0      |
-| electra-small   | CEA + memory         | -        | -         |
-| electra-small   | CEA + mixed memory   | -        | -         |
-| electra-small   | CEA + multitask      | -        | -         |
-| --------------- | -------------------- | -------- | --------- |
-| longformer-base | fine-tuning          | 98.43    | 71.04     |
-| longformer-base | CEA + multitask      | -        | -         |
+| model           | details                      | dev F1   | test F1   |
+|-----------------|------------------------------|----------|-----------|
+| electra-small   | fine-tuning                  | 98.2     | 67.6      |
+| electra-small   | CEA (batch)                  | 98.1     | 66.8      |
+| electra-small   | CEA (batch) + all negatives  | 98.0     | 67.2      |
+| electra-small   | CEA (memory)                 | 97.5     | 67.9      |
+| electra-small   | CEA (memory) + all negatives | -        | -         |
+| --------------- | --------------------         | -------- | --------- |
+| longformer-base | fine-tuning                  | 98.43    | 71.04     |
+| longformer-base | CEA + multitask              | -        | -         |
 
 
 TODO: run multitask_alignment.py. Find out why CSVClassificationCorpus(in_memory=True) + this bias dataset + current master gives error.

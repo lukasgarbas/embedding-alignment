@@ -1,5 +1,5 @@
 import logging
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union
 from collections import Counter
 import random
 
@@ -10,18 +10,16 @@ import flair.nn
 from flair.data import Sentence, Dictionary
 from flair.datasets import DataLoader
 
-log = logging.getLogger("flair")
 
-
-class EmbeddingAlignmentClassifier(flair.nn.Classifier[Sentence]):
+class CEA(flair.nn.Classifier[Sentence]):
     def __init__(
         self,
         document_embeddings: flair.embeddings.DocumentEmbeddings,
         label_type: str,
         label_dictionary: Dictionary,
-        train_corpus: List[Sentence],  # just training set corpus.train
+        train_corpus: List[Sentence],
         use_memory: bool = False,
-        memory_type: str = "datpoint",  # 'datapoint' or 'embedding'
+        use_all_negatives: bool = False,
         knn: int = 5,
         **classifierargs,
     ):
@@ -37,13 +35,13 @@ class EmbeddingAlignmentClassifier(flair.nn.Classifier[Sentence]):
 
         :param document_embeddings: Embedding used to encode sentence (transformer document embeddings for now)
         :param label_type: Name of the gold labels to use.
-        :param train_corpus: corpus.train set from the corpus. The model uses training set for the KNN algorithm.
+        :param train_corpus: The model uses corpus.train training set for the KNN algorithm.
         :param knn: number of neighbours for KNN predictions
-        :param use_memory: (experimental) store a single embedding from a previous batch and detach
-        :param mix_memory: (experimental) use embedding from memory only if no sentence pair was found in the current batch
+        :param use_memory: store a sentence from previous batch
+        :param use_all_negatives: use all available negative samples
         """
 
-        super(EmbeddingAlignmentClassifier, self).__init__(**classifierargs)
+        super(CEA, self).__init__(**classifierargs)
 
         # only document embeddings so far
         self.embeddings: flair.embeddings.DocumentEmbeddings = document_embeddings
@@ -58,17 +56,13 @@ class EmbeddingAlignmentClassifier(flair.nn.Classifier[Sentence]):
         # number of neighbours for K-NN predictions
         self.knn = knn
 
-        # store previous embedding for each label (ensures that we always find positive and negative pairs)
-        # self.mix_memory = mix_memory
-
-        # implementation using memory approach + datapoints (storing Sentences in memory):
-        # store a single sentence from a previous batch to find a pair for embedding alignment
-        # memory is a dictionary that stores a sentence object for each class label
+        # memory approach: store a sentence for each class from a previous batch to find a pair for embedding alignment
         self.use_memory = use_memory
-        self.memory_type = memory_type
         if self.use_memory:
-            self.memory = {label: None for label in self.label_dictionary.get_items()}
-            self.memory.pop("<unk>", None)  # disregard unk label
+            self.memory = {label: None for label in self.label_dictionary.get_items() if label != "<unk>"}
+
+        # use all possible negative pairs
+        self.use_all_negatives = use_all_negatives
 
         # loss function: MSE between cosine similarities and 0s (pairs of different class) and 1s (pairs of same class)
         self.loss_function = torch.nn.MSELoss(reduction="sum")
@@ -88,7 +82,8 @@ class EmbeddingAlignmentClassifier(flair.nn.Classifier[Sentence]):
                                      sentence: Sentence,
                                      mini_batch: List[Sentence],
                                      sample: str = "positive",  # 'positive' or 'negative' sample
-                                     ) -> Sentence:  # returns a single sentence
+                                     ) -> List[Sentence]:
+        """Finds a list of all positive or negative sentence pairs in the current batch"""
 
         label = sentence.get_label(self._label_type).value
 
@@ -102,32 +97,34 @@ class EmbeddingAlignmentClassifier(flair.nn.Classifier[Sentence]):
                               if sentence_pair not in positive_sentences
                               and sentence_pair != sentence]
 
-        sentence_pair_embedding: Optional[Sentence] = None
-        if sample == "positive" and positive_sentences:
-            sentence_pair_embedding = random.choice(positive_sentences)
-        if sample == "negative" and negative_sentences:
-            sentence_pair_embedding = random.choice(negative_sentences)
+        sentence_pair: List[Sentence] = positive_sentences if sample == "positive" else negative_sentences
+        sentence_pair = [sample for sample in sentence_pair if sample is not None]
 
-        return sentence_pair_embedding
+        # use only one sample and return a single random sentence
+        if not self.use_all_negatives and sentence_pair:
+            sentence_pair = [random.choice(sentence_pair)]
+
+        return sentence_pair
 
     def _find_sentence_pair_in_memory(self,
                                       sentence: Sentence,
                                       sample: str = "positive",  # 'positive' or 'negative' sample
-                                      ) -> torch.FloatTensor:
+                                      ) -> List[Sentence]:
+        """Finds a list of all positive or negative sentence pairs in memory"""
 
         label = sentence.get_label(self._label_type).value
 
-        positive_sentence = self.memory[label]
+        positive_sentences = [self.memory[label]]
         negative_labels = [negative_label for negative_label in list(self.memory.keys()) if negative_label != label]
         negative_sentences = [self.memory[negative_label] for negative_label in negative_labels]
 
-        sentence_pair: Optional[Sentence] = None
-        if sample == "positive" and (positive_sentence is not None):
-            sentence_pair = positive_sentence
-        if sample == "negative" and negative_sentences:
-            sentence_pair = random.choice(negative_sentences)
+        sentence_pair: List[Sentence] = positive_sentences if sample == "positive" else negative_sentences
+        sentence_pair = [sample for sample in sentence_pair if sample is not None]
 
-        # return raw embedding
+        # use only one sample and return a single random sentence
+        if not self.use_all_negatives and sentence_pair:
+            sentence_pair = [random.choice(sentence_pair)]
+
         return sentence_pair
 
     def forward_loss(self, sentences: List[Sentence]) -> Tuple[torch.Tensor, int]:
@@ -141,77 +138,65 @@ class EmbeddingAlignmentClassifier(flair.nn.Classifier[Sentence]):
         labels: List[torch.tensor] = []
 
         for sentence in sentences:
-            positive_sample, negative_sample = None, None
+            positive_samples, negative_samples = [], []
 
             if self.use_memory:
-                positive_sample = self._find_sentence_pair_in_memory(sentence, sample="positive")
-                negative_sample = self._find_sentence_pair_in_memory(sentence, sample="negative")
+                positive_samples = self._find_sentence_pair_in_memory(sentence, sample="positive")
+                negative_samples = self._find_sentence_pair_in_memory(sentence, sample="negative")
 
             # if no samples found in memory, take it from the current batch
             # this is necessary for the first forward pass even if using the memory
-            if positive_sample is None:
-                positive_sample = self._find_sentence_pair_in_batch(sentence, mini_batch=sentences, sample="positive")
-            if negative_sample is None:
-                negative_sample = self._find_sentence_pair_in_batch(sentence, mini_batch=sentences, sample="negative")
-
-            # if no samples found
-            #if self.mix_memory:
-            #    if positive_sample is None:
-            #        positive_sample = self._find_embedding_pair_in_memory(sentence, sample="positive")
-            #    if negative_sample is None:
-            #        negative_sample = self._find_embedding_pair_in_memory(sentence, sample="negative")
+            if not positive_samples:
+                positive_samples = self._find_sentence_pair_in_batch(sentence, mini_batch=sentences, sample="positive")
+            if not negative_samples:
+                negative_samples = self._find_sentence_pair_in_batch(sentence, mini_batch=sentences, sample="negative")
 
             # add sentence pair from the same class and label 1
-            if positive_sample is not None:
+            for sample in positive_samples:
                 first_sentences.append(sentence)
-                second_sentences.append(positive_sample)
+                second_sentences.append(sample)
                 labels.append(1)
 
             # add sentence pair from a different class and label 0
-            if negative_sample is not None:
+            for sample in negative_samples:
                 first_sentences.append(sentence)
-                second_sentences.append(negative_sample)
+                second_sentences.append(sample)
                 labels.append(0)
 
-        # embed all second sentences
-        if self.use_memory and self.memory_type == "datapoint":
-            self.embeddings.embed(second_sentences)
+        if self.use_memory:
+            # embed all second sentences and remove duplicates before embedding
+            self.embeddings.embed(list(set(second_sentences)))
 
-        first_embeddings = [sentence.get_embedding(embedding_names) for sentence in first_sentences]
-        second_embeddings = [sentence.get_embedding(embedding_names) for sentence in second_sentences]
-
-        # refresh memory after each forward pass
-        if self.use_memory or self.mix_memory:
+            # refresh memory after each forward pass
             for sentence in sentences:
                 self.memory[sentence.get_label().value] = sentence
 
+        first_embeddings = torch.stack([sentence.get_embedding(embedding_names) for sentence in first_sentences])
+        second_embeddings = torch.stack([sentence.get_embedding(embedding_names) for sentence in second_sentences])
+
         # return MSE loss between sentence pair similarities and 0s and 1s
-        return self._calculate_loss(list(zip(first_embeddings, second_embeddings)), torch.FloatTensor(labels))
+        return self._calculate_loss(first_embeddings, second_embeddings, torch.FloatTensor(labels))
 
     def _calculate_loss(self,
-                        embedding_pairs: Tuple[torch.tensor, torch.tensor],
+                        first_embeddings: List[torch.tensor],
+                        second_embeddings: List[torch.Tensor],
                         labels: torch.FloatTensor,
                         ) -> Tuple[torch.Tensor, int]:
 
         # put to gpu
-        first_sentences = torch.stack([embedding_pair[0] for embedding_pair in embedding_pairs]).to(flair.device)
-        second_sentences = torch.stack([embedding_pair[1] for embedding_pair in embedding_pairs]).to(flair.device)
+        first_embeddings = first_embeddings.to(flair.device)
+        second_embeddings = second_embeddings.to(flair.device)
         labels = labels.to(flair.device)
 
         # calculate cosine similarities for a full batch
-        similarities = torch.nn.functional.cosine_similarity(first_sentences, second_sentences, dim=1)
+        similarities = torch.nn.functional.cosine_similarity(first_embeddings, second_embeddings, dim=1)
 
         # MSE loss between cosine similarities and 0s (pairs of different class) and 1s (pairs of same class)
         loss = self.loss_function(similarities, labels)
 
-        return loss, first_sentences.shape[0]
+        return loss, first_embeddings.shape[0]
 
-    def _embed_training_set(self, mini_batch_size: int = 32):
-        loader = DataLoader(self.train_corpus, batch_size=mini_batch_size, num_workers=0)
-        for batch in loader:
-            self.embeddings.embed(batch)
-
-    def _k_nearest_neighbor(self, sentence: Sentence) -> str:
+    def _knn(self, sentence: Sentence) -> str:
         """KNN classification for a single sentence"""
 
         # get embedding for a given sentence
@@ -244,7 +229,7 @@ class EmbeddingAlignmentClassifier(flair.nn.Classifier[Sentence]):
         return_loss: bool = False,
         **kwargs,
     ):
-        """Prediction phase uses K-Nearest Neighbor thus needs embeddings of the training set"""
+        """Predictions use K-Nearest Neighbor thus needs embeddings of the training set"""
 
         if isinstance(sentences, Sentence):
             sentences = [sentences]
@@ -254,30 +239,29 @@ class EmbeddingAlignmentClassifier(flair.nn.Classifier[Sentence]):
         if len(sentences) == 0:
             return sentences
 
-        # embed full training set
-        self._embed_training_set(mini_batch_size=mini_batch_size)
-
         # embed sentences to be predicted
-        loader = DataLoader(sentences, batch_size=mini_batch_size, num_workers=0)
+        loader = DataLoader(sentences, batch_size=mini_batch_size)
         for batch in loader:
             self.embeddings.embed(batch)
 
         # perform KNN to assign each new sentence a class
         for sentence in sentences:
-            predicted_label = self._k_nearest_neighbor(sentence)
+            predicted_label = self._knn(sentence)
             sentence.add_label(typename=label_name, value=predicted_label)
 
         # KNN predictions do not have loss value
         if return_loss:
             return 0
 
-    def evaluate(self, data_points, mini_batch_size: int, **kwargs):
-        result = super().evaluate(data_points, mini_batch_size=mini_batch_size, **kwargs)
+    def train(self, training: bool = True):
+        if training:
+            # clear embeddings from the training set after each epoch
+            for sentence in self.train_corpus:
+                sentence.clear_embeddings(self.embeddings.get_names())
+        else:
+            # embed the full training set before the evaluation (needed for knn predictions)
+            loader = DataLoader(self.train_corpus, batch_size=32)
+            for batch in loader:
+                self.embeddings.embed(batch)
 
-        # clear embeddings from the training set after each epoch
-        # TODO: this is called every time we call evaluate (i.e. for every batch) it would be better to do it just once
-        embedding_names = self.embeddings.get_names()
-        for sentence in self.train_corpus:
-            sentence.clear_embeddings(embedding_names)
-
-        return result
+        return super().train(training)
