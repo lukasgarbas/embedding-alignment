@@ -1,6 +1,7 @@
 import csv
 import os
 import shutil
+from shuffle_data import shuffle_csv
 
 '''
 place original dataset in data/bias and create a fixed dev split
@@ -79,3 +80,6 @@ create_fixed_splits(data_directory='bias',
                     out_directory='fixedsplits/bias',
                     use_head_of_train_set=True,
                     )
+
+shuffle_csv(filename='fixedsplits/bias/train.csv',
+            out_filename='fixedsplits/bias/train.csv')
