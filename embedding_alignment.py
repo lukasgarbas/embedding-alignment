@@ -1,6 +1,6 @@
 from flair.datasets import CSVClassificationCorpus
 from flair.embeddings import TransformerDocumentEmbeddings
-from flair.models import EmbeddingAlignmentClassifier
+from alignment_model import CEA
 from flair.trainers import ModelTrainer
 
 # specify gpu device
@@ -43,12 +43,12 @@ for parameter in parameters:
     document_embeddings = TransformerDocumentEmbeddings(model_handle, fine_tune=True)
 
     # 4. create embedding alignment model
-    classifier = EmbeddingAlignmentClassifier(document_embeddings,
-                                              train_corpus=corpus.train,
-                                              label_type=label_type,
-                                              label_dictionary=label_dict,
-                                              use_memory=False,
-                                              knn=5)
+    classifier = CEA(document_embeddings,
+                     train_corpus=corpus.train,
+                     label_type=label_type,
+                     label_dictionary=label_dict,
+                     use_all_negatives=True,
+                     knn=5)
 
     # 5. initialize trainer
     trainer = ModelTrainer(classifier, corpus)

@@ -1,6 +1,4 @@
-import logging
-from typing import List, Tuple, Union
-from collections import Counter
+from typing import List, Tuple, Union, Dict, Any
 import random
 
 import torch
@@ -9,19 +7,21 @@ import flair.embeddings
 import flair.nn
 from flair.data import Sentence, Dictionary
 from flair.datasets import DataLoader
+from sklearn.neighbors import KNeighborsClassifier
 
 
 class CEA(flair.nn.Classifier[Sentence]):
     def __init__(
-        self,
-        document_embeddings: flair.embeddings.DocumentEmbeddings,
-        label_type: str,
-        label_dictionary: Dictionary,
-        train_corpus: List[Sentence],
-        use_memory: bool = False,
-        use_all_negatives: bool = False,
-        knn: int = 5,
-        **classifierargs,
+            self,
+            document_embeddings: flair.embeddings.DocumentEmbeddings,
+            label_type: str,
+            label_dictionary: Dictionary,
+            train_corpus: List[Sentence],
+            use_all_negatives: bool = True,
+            use_memory: bool = False,
+            flip_labels: bool = False,
+            knn: int = 5,
+            **classifierargs,
     ):
         """
         Class-driven Embedding Alignment Model (CEA)
@@ -35,10 +35,10 @@ class CEA(flair.nn.Classifier[Sentence]):
 
         :param document_embeddings: Embedding used to encode sentence (transformer document embeddings for now)
         :param label_type: Name of the gold labels to use.
-        :param train_corpus: The model uses corpus.train training set for the KNN algorithm.
-        :param knn: number of neighbours for KNN predictions
-        :param use_memory: store a sentence from previous batch
+        :param train_corpus: training set (corpus.train) for the K-NN predictions.
+        :param knn: number of neighbours for K-NN predictions
         :param use_all_negatives: use all available negative samples
+        :param use_memory: store a sentence from previous batch
         """
 
         super(CEA, self).__init__(**classifierargs)
@@ -55,6 +55,7 @@ class CEA(flair.nn.Classifier[Sentence]):
 
         # number of neighbours for K-NN predictions
         self.knn = knn
+        self.knn_model = KNeighborsClassifier(n_neighbors=self.knn)
 
         # memory approach: store a sentence for each class from a previous batch to find a pair for embedding alignment
         self.use_memory = use_memory
@@ -66,6 +67,9 @@ class CEA(flair.nn.Classifier[Sentence]):
 
         # loss function: MSE between cosine similarities and 0s (pairs of different class) and 1s (pairs of same class)
         self.loss_function = torch.nn.MSELoss(reduction="sum")
+
+        # used for multitask experiment when classifying political articles into categories
+        self.flip_labels = flip_labels
 
         # auto-spawn on GPU if available
         self.to(flair.device)
@@ -137,6 +141,9 @@ class CEA(flair.nn.Classifier[Sentence]):
         second_sentences: List[Sentence] = []
         labels: List[torch.tensor] = []
 
+        # get mini batch size
+        mini_batch_size = len(sentences)
+
         for sentence in sentences:
             positive_samples, negative_samples = [], []
 
@@ -145,27 +152,28 @@ class CEA(flair.nn.Classifier[Sentence]):
                 negative_samples = self._find_sentence_pair_in_memory(sentence, sample="negative")
 
             # if no samples found in memory, take it from the current batch
-            # this is necessary for the first forward pass even if using the memory
             if not positive_samples:
                 positive_samples = self._find_sentence_pair_in_batch(sentence, mini_batch=sentences, sample="positive")
             if not negative_samples:
                 negative_samples = self._find_sentence_pair_in_batch(sentence, mini_batch=sentences, sample="negative")
 
-            # add sentence pair from the same class and label 1
+            # add sentence pair from the same class
             for sample in positive_samples:
                 first_sentences.append(sentence)
                 second_sentences.append(sample)
-                labels.append(1)
+                labels.append(0) if self.flip_labels else labels.append(1)
 
-            # add sentence pair from a different class and label 0
+            # add sentence pair from a different class
             for sample in negative_samples:
                 first_sentences.append(sentence)
                 second_sentences.append(sample)
-                labels.append(0)
+                labels.append(1) if self.flip_labels else labels.append(0)
 
         if self.use_memory:
             # embed all second sentences and remove duplicates before embedding
-            self.embeddings.embed(list(set(second_sentences)))
+            loader = DataLoader(list(set(second_sentences)), batch_size=mini_batch_size)
+            for batch in loader:
+                self.embeddings.embed(batch)
 
             # refresh memory after each forward pass
             for sentence in sentences:
@@ -196,38 +204,13 @@ class CEA(flair.nn.Classifier[Sentence]):
 
         return loss, first_embeddings.shape[0]
 
-    def _knn(self, sentence: Sentence) -> str:
-        """KNN classification for a single sentence"""
-
-        # get embedding for a given sentence
-        embedding_names = self.embeddings.get_names()
-        sentence_embedding = sentence.get_embedding(embedding_names)
-
-        # gather embeddings for all training instances
-        train_set_embeddings = [training_sample.get_embedding(embedding_names)
-                                for training_sample in self.train_corpus]
-        train_set_embeddings = torch.stack(train_set_embeddings)
-
-        # calculate cos similarity between given sentence and all training instances
-        similarities = torch.nn.functional.cosine_similarity(sentence_embedding, train_set_embeddings, dim=1)
-
-        # sort by top k (nearest neighbours) and get their labels
-        _, top_k_idx = similarities.topk(k=self.knn)
-        closest_labels = [self.train_corpus[sentence_id].get_label(self._label_type).value
-                          for sentence_id in top_k_idx]
-
-        # majority vote
-        predicted_label = Counter(closest_labels).most_common(1)[0][0]
-
-        return predicted_label
-
     def predict(
-        self,
-        sentences: Union[List[Sentence], Sentence],
-        mini_batch_size: int = 32,
-        label_name: str = "predicted",
-        return_loss: bool = False,
-        **kwargs,
+            self,
+            sentences: Union[List[Sentence], Sentence],
+            mini_batch_size: int = 32,
+            label_name: str = "predicted",
+            return_loss: bool = False,
+            **kwargs,
     ):
         """Predictions use K-Nearest Neighbor thus needs embeddings of the training set"""
 
@@ -245,8 +228,8 @@ class CEA(flair.nn.Classifier[Sentence]):
             self.embeddings.embed(batch)
 
         # perform KNN to assign each new sentence a class
-        for sentence in sentences:
-            predicted_label = self._knn(sentence)
+        predicted_labels = self.knn_model.predict(torch.stack([sent.embedding for sent in sentences]).cpu())
+        for sentence, predicted_label in zip(sentences, predicted_labels):
             sentence.add_label(typename=label_name, value=predicted_label)
 
         # KNN predictions do not have loss value
@@ -254,14 +237,77 @@ class CEA(flair.nn.Classifier[Sentence]):
             return 0
 
     def train(self, training: bool = True):
+        super().train(training)
+
         if training:
             # clear embeddings from the training set after each epoch
             for sentence in self.train_corpus:
                 sentence.clear_embeddings(self.embeddings.get_names())
         else:
             # embed the full training set before the evaluation (needed for knn predictions)
-            loader = DataLoader(self.train_corpus, batch_size=32)
-            for batch in loader:
+            # TODO: this batch size is hardcoded which can run out of memory
+            for batch in DataLoader(self.train_corpus, batch_size=16):
                 self.embeddings.embed(batch)
 
-        return super().train(training)
+            # prepare KNN model for faster retrieval
+            embeddings = torch.stack([sent.embedding for sent in self.train_corpus]).cpu()
+            labels = [sent.get_label(self.label_type).value for sent in self.train_corpus]
+            self.knn_model.fit(embeddings, labels)
+
+            if self.visualize_each_epoch:
+                self.visualize(self.train_corpus)
+
+    def visualize(self,
+                  sentences: List[Sentence],
+                  description: str = "CEA visualization",
+                  mini_batch_size: int = 32):
+
+        # if KNN model is not fitted, put model to eval mode which will embed the training set and fit KNN model
+        if not hasattr(self.knn_model, "classes_"):
+            self.eval()
+
+        self.predict(sentences)
+        embeddings = torch.stack([sent.embedding for sent in sentences]).cpu()
+        labels = [sent.get_label("predicted").value for sent in sentences]
+
+        from sklearn.manifold import TSNE
+
+        tsne = TSNE(n_components=2)
+        z = tsne.fit_transform(embeddings)
+
+        import seaborn
+        import pandas
+
+        df = pandas.DataFrame()
+        df["y"], df["comp-1"], df["comp-2"] = labels, z[:, 0], z[:, 1]
+        return seaborn.scatterplot(x="comp-1", y="comp-2", hue=df.y.tolist(), data=df).set(title=description)
+
+    def _get_state_dict(self):
+        state = super()._get_state_dict()
+
+        # add variables of DefaultClassifier
+        state["document_embeddings"] = self.embeddings
+        state["label_dictionary"] = self.label_dictionary
+        state["label_type"] = self.label_type
+        state["knn"] = self.knn
+        state["use_memory"] = self.use_memory
+        state["use_all_negatives"] = self.use_all_negatives
+        state["flip_labels"] = self.flip_labels
+        state["train_corpus"] = self.train_corpus
+
+        return state
+
+    @classmethod
+    def _init_model_with_state_dict(cls, state: Dict[str, Any], **kwargs):
+        return super()._init_model_with_state_dict(
+            state,
+            document_embeddings=state["document_embeddings"],
+            label_dictionary=state["label_dictionary"],
+            label_type=state["label_type"],
+            knn=state["knn"],
+            use_memory=state["use_memory"],
+            use_all_negatives=state["use_all_negatives"],
+            flip_labels=state["flip_labels"],
+            train_corpus=state["train_corpus"],
+            **kwargs,
+        )

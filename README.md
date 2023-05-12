@@ -44,8 +44,6 @@ classifier = CEA(document_embeddings,
                  train_corpus=corpus.train,
                  label_type=label_type,
                  label_dictionary=label_dict,
-                 use_memory=False,
-                 use_all_negatives=True,
                  knn=5,  # k for knn predictions
                  )
 
@@ -98,6 +96,11 @@ Takeaway:
 | electra-small   | CEA memory                  | 85.0    |                                                                                                                           |
 | electra=small   | CEA memory + all negatives  | 88.2    | hard to fit in memory                                                                                                     |
 
+## Visualizing CEA approaches
+
+![Visualise CEA on TREC 6](assets/cea_approaches.png)
+
+
 # Political Bias Dataset
 
 - Transformers to consider:
@@ -105,7 +108,7 @@ Takeaway:
   - bert-base (classic)
   - longformer (probably the best choice for long documents). Longformer has a [smaller version (1096 tokens)](kiddothe2b/longformer-mini-1024) and [medium (4096 tokens)](allenai/longformer-base-4096) 👈 This one would be to go, just barely fits anywhere (setup: gruenau9 + batch size 4 or 8)
 
-### About the dataset
+## About the dataset
 
 - Labels: skews right, skews left, center / more reliable
 - Corpus: 8640 train + 960 dev + 1200 test sentences
@@ -115,25 +118,51 @@ Takeaway:
 - Publishers in train and dev sets: Fox News, The Nation, AP, Washington Times, The Intercept, Reuters
 - Publishers in test set: The Washington, Free Beacon, The New Yorker, CNBC
 
-# Results and TODOs
+## Evaluating frozen models on political bias
 
-| model           | details                      | dev F1   | test F1   |
-|-----------------|------------------------------|----------|-----------|
-| electra-small   | fine-tuning                  | 98.2     | 67.6      |
-| electra-small   | CEA (batch)                  | 98.1     | 66.8      |
-| electra-small   | CEA (batch) + all negatives  | 98.0     | 67.2      |
-| electra-small   | CEA (memory)                 | 97.5     | 67.9      |
-| electra-small   | CEA (memory) + all negatives | -        | -         |
-| --------------- | --------------------         | -------- | --------- |
-| longformer-base | fine-tuning                  | 98.43    | 71.04     |
-| longformer-base | CEA + multitask              | -        | -         |
+![Embedding training sets using frozen models](assets/frozen_models.png)
+
+| model                      | train F1 | dev F1 | test F1 |
+|----------------------------|----------|--------|---------|
+| all-MiniLM-L12-v2          | 88.07    | 69.17  | 52.42   |
+| electra-small              | 86.88    | 72.6   | 55.83   |
+| bert-base-cased            | 88.04    | 74.58  | 57.33   |
+| bert-base-uncased          | 89.64    | 76.04  | 58.42   |
+| longformer-mini-1024       | 90.2     | 76.46  | 51.08   |
+| longformer-base-4096       | 96.68    | 88.02  | 59.33   |
+| bigbird-roberta-base-4096  | 93.96    | 85.1   | 63.83   |
+| bigbird-roberta-large-4096 | 93.32    | 79.48  | 67.67   |
+
+## Fine-tuning models on political bias
+
+| model           | details              | dev F1  | test F1 |
+|-----------------|----------------------|---------|---------|
+| electra-small   | fine-tuning 2e-5, 32 | 97.5    | 67.6    |
+| bert-base-cased | fine-tuning 2e-5, 32 | 97.81   | 66.4    |
+| longformer-base | fine-tuning 2e-5, 4  | 98.02   | 72.0    |
+
+## CEA on political bias
+
+| model           | details                      | dev F1    | test F1    |
+|-----------------|------------------------------|-----------|------------|
+| electra-small   | fine-tuning                  | 98.2      | 67.6       |
+| electra-small   | CEA (batch)                  | 98.1      | 66.8       |
+| electra-small   | CEA (batch) + all negatives  | 98.0      | 67.2       |
+| electra-small   | CEA (memory)                 | 97.5      | 67.9       |
+| electra-small   | CEA (memory) + all negatives | -         | -          |
+| --------------- | --------------------         | --------  | ---------  |
+| longformer-base | fine-tuning                  | 98.02     | 72.0       |
+| longformer-base | CEA + multitask              | -         | -          |
 
 
-TODO: run multitask_alignment.py. Find out why CSVClassificationCorpus(in_memory=True) + this bias dataset + current master gives error.
+## Multitask + flipped labels
 
-- preliminary: multitask electra-small (just 2 epochs). Current walkaround when loading bias dataset `CSVClassificationCorpus(in_memory=True, tokenizer=SpaceTokenizer())`
+What happens if we flip labels for publishers? 👉 Sentences are shuffle in whatever order?
 
-| model          | details                     | params                     | bias dev | bias test | publisher dev | publisher test |
-|----------------|-----------------------------|----------------------------|----------|-----------|---------------|----------------|
-| electra-small  | cae (baseline) + multitask  | lr=5e-5, bsz=32, epochs=10 | 94.4     | 64.2      | 86.35         | 0.0            |
 
+| model          | details                       | params                     | bias dev | bias test | publisher dev | publisher test |
+|----------------|-------------------------------|----------------------------|----------|-----------|---------------|----------------|
+| electra-small  | cae all_negatives + multitask | lr=5e-5, bsz=32, epochs=40 | 95.83    | 68.33     | 79.69         | 0.0            |
+
+
+![Visualizing how train set changes using multitask CEA + flipped labels](assets/multitask-visualisation.png)

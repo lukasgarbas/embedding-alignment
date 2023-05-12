@@ -1,6 +1,7 @@
 from flair.datasets import CSVClassificationCorpus
 from flair.embeddings import TransformerDocumentEmbeddings
-from flair.models import EmbeddingAlignmentClassifier, MultitaskModel
+from alignment_model import CEA
+from flair.models import MultitaskModel
 from flair.nn.multitask import make_multitask_model_and_corpus
 from flair.trainers import ModelTrainer
 
@@ -11,7 +12,7 @@ flair.device = torch.device('cuda:0')
 # prepare multiple runs
 model_handle = "google/electra-small-discriminator"
 parameters = [
-    (5e-5, 32, 10)
+    (5e-5, 32, 20)
 ]
 
 # initialize transformer document embeddings
@@ -34,12 +35,12 @@ bias_corpus = CSVClassificationCorpus(data_folder=data_directory,
 print(f"Political Bias Corpus: {bias_corpus}")
 bias_label_dict = bias_corpus.make_label_dictionary(label_type=bias_label_type)
 
-bias_classifier = EmbeddingAlignmentClassifier(shared_embeddings,
-                                               train_corpus=bias_corpus.train,
-                                               label_type=bias_label_type,
-                                               label_dictionary=bias_label_dict,
-                                               use_memory=False,
-                                               knn=5)
+bias_classifier = CEA(shared_embeddings,
+                      train_corpus=bias_corpus.train,
+                      label_type=bias_label_type,
+                      label_dictionary=bias_label_dict,
+                      use_all_negatives=True,
+                      knn=5)
 
 # 2. Create alignment model for publisher classification
 data_directory = "data/fixedsplits/bias"
@@ -58,12 +59,13 @@ publisher_corpus = CSVClassificationCorpus(data_folder=data_directory,
 print(f"Publisher Corpus: {publisher_corpus}")
 publisher_label_dict = publisher_corpus.make_label_dictionary(label_type=publisher_label_type)
 
-publisher_classifier = EmbeddingAlignmentClassifier(shared_embeddings,
-                                                    train_corpus=publisher_corpus.train,
-                                                    label_type=publisher_label_type,
-                                                    label_dictionary=publisher_label_dict,
-                                                    use_memory=False,
-                                                    knn=5)
+publisher_classifier = CEA(shared_embeddings,
+                           train_corpus=publisher_corpus.train,
+                           label_type=publisher_label_type,
+                           label_dictionary=publisher_label_dict,
+                           use_all_negatives=True,
+                           flip_labels=True,
+                           knn=5)
 
 for parameter in parameters:
     learning_rate, batch_size, epochs = parameter
