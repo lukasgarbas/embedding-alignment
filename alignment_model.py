@@ -264,7 +264,12 @@ class CEA(flair.nn.Classifier[Sentence]):
 
         # if KNN model is not fitted, put model to eval mode which will embed the training set and fit KNN model
         if not hasattr(self.knn_model, "classes_"):
-            self.eval()
+            print('fitting KNN model for visualization')
+            for batch in DataLoader(self.train_corpus, batch_size=mini_batch_size):
+                self.embeddings.embed(batch)
+            embeddings = torch.stack([sent.embedding for sent in self.train_corpus]).cpu()
+            labels = [sent.get_label(self.label_type).value for sent in self.train_corpus]
+            self.knn_model.fit(embeddings, labels)
 
         self.predict(sentences)
         embeddings = torch.stack([sent.embedding for sent in sentences]).cpu()
