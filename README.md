@@ -58,6 +58,33 @@ trainer.fine_tune('resources/taggers/small-transformer-alignment',
                   )
 ```
 
+# Excurse: evaluating frozen models + KNN on different text classifaction datasets
+
+- Table 1. uses frozen CLS token and performs KNN (n=5) on the complete dataset (train+dev+test)
+
+| Model             | TREC6     | TREC50    | Communicative functions | SST Binary | SST Granular (5 class) | Go Emotions |
+|-------------------|-----------|-----------|-------------------------|------------|------------------------|-------------|
+| all-MiniLM-L12-v2 | 65.66     | 53.01     | 61.62                   | 92.61      | 55.16                  | 47.15       |
+| electra-small     | 76.06     | 64.33     | 65.53                   | 84.66      | 52.22                  | 44.34       |
+| electra-base      | 80.48     | 69.07     | 68.46                   | 85.68      | 56.17                  | 43.83       |
+| bert-base-cased   | __87.28__ | __78.49__ | __76.95__               | __92.43__  | 56.07                  | __50.53__   |
+| roberta-base      | 84.88     | 74.26     | 69.82                   | 91.41      | __58.18__              | 47.29       |
+| concat all models | 85.99     | 75.54     | 72.36                   |            | 57.68                  |             |
+
+- Table 2. uses frozen DocumentPoolEmbeddings (average all tokens) and performs KNN (n=5) on the complete dataset (train+dev+test)
+
+| Model             | TREC6     | TREC50    | Communicative functions | SST Binary | SST Granular (5 class) | Go Emotions |
+|-------------------|-----------|-----------|-------------------------|------------|------------------------|-------------|
+| all-MiniLM-L12-v2 | 81.97     | 73.2      | 66.89                   | 92.68      | 57.71                  | 46.9        |
+| electra-small     | 82.66     | 71.52     | 71.88                   | 88.99      | 54.04                  | 45.12       |
+| electra-base      | 83.87     | 72.88     | 70.31                   | 89.61      | 55.98                  | 46.01       |
+| bert-base-cased   | __87.26__ | __79.39__ | __76.76__               | __92.8__   | 58.05                  | __49.02__   |
+| roberta-base      | 85.52     | 77.17     | 73.83                   | 92.04      | __58.49__              | 48.6        |
+
+
+- Question: can we tell which model (encoder) is most best suited for a task by looking how well frozen model + KNN is able to classify the data (initial knowledge in LM)? 
+- How I see it so far: It's a good indicator but it's not precise. Fine-tuning a similar model (even when it's weaker initially) can outperform others. E.g. electra scores slightly better than others when fine-tuned.   
+
 # Results
 
 - parameters: learning rate 5e-5, batch size 32, epochs 10
@@ -88,13 +115,13 @@ Takeaway:
 - batch + all comparisons is OK
 - datapoint memory + all comparisons needs a lot of gpu memory
 
-| model           | details                     | Trec 50 | Comment                                                                                                                   |
-|-----------------|-----------------------------|---------|---------------------------------------------------------------------------------------------------------------------------| 
-| electra-small   | fine-tuning                 | 89.8    |                                                                                                                           |
-| electra-small   | CEA (batch)                 | 82.8    |                                                                                                                           |
-| electra-small   | CEA (batch) + all negatives | 86.0    | 👈 this works ok. embedd a full batch and comapre distances between all pairs. needs 15 epochs (slightly longer to train) |
-| electra-small   | CEA memory                  | 85.0    |                                                                                                                           |
-| electra=small   | CEA memory + all negatives  | 88.2    | hard to fit in memory                                                                                                     |
+| model         | details                     | Trec 50 | Comment                                                                                                                   |
+|---------------|-----------------------------|---------|---------------------------------------------------------------------------------------------------------------------------| 
+| electra-small | fine-tuning                 | 89.8    |                                                                                                                           |
+| electra-small | CEA (batch)                 | 82.8    |                                                                                                                           |
+| electra-small | CEA (batch) + all negatives | 86.0    | 👈 this works ok. embedd a full batch and comapre distances between all pairs. needs 15 epochs (slightly longer to train) |
+| electra-small | CEA memory                  | 85.0    |                                                                                                                           |
+| electra-small | CEA memory + all negatives  | 88.2    | hard to fit in memory                                                                                                     |
 
 ## Visualizing CEA approaches
 
@@ -122,16 +149,20 @@ Takeaway:
 
 ![Embedding training sets using frozen models](assets/frozen_models.png)
 
-| model                      | train F1 | dev F1 | test F1 |
-|----------------------------|----------|--------|---------|
-| all-MiniLM-L12-v2          | 88.07    | 69.17  | 52.42   |
-| electra-small              | 86.88    | 72.6   | 55.83   |
-| bert-base-cased            | 88.04    | 74.58  | 57.33   |
-| bert-base-uncased          | 89.64    | 76.04  | 58.42   |
-| longformer-mini-1024       | 90.2     | 76.46  | 51.08   |
-| longformer-base-4096       | 96.68    | 88.02  | 59.33   |
-| bigbird-roberta-base-4096  | 93.96    | 85.1   | 63.83   |
-| bigbird-roberta-large-4096 | 93.32    | 79.48  | 67.67   |
+| model                      | train F1 | dev F1    | test F1   |
+|----------------------------|----------|-----------|-----------|
+| all-MiniLM-L12-v2          | 88.07    | 69.17     | 52.42     |
+| electra-small              | 86.88    | 72.6      | 55.83     |
+| bert-base-cased            | 88.04    | 74.58     | 57.33     |
+| bert-base-uncased          | 89.64    | 76.04     | 58.42     |
+| longformer-mini-1024       | 90.2     | 76.46     | 51.08     |
+| longformer-base-4096       | 96.68    | __88.02__ | 59.33     |
+| bigbird-roberta-base-4096  | 93.96    | 85.1      | 63.83     |
+| bigbird-roberta-large-4096 | 93.32    | 79.48     | __67.67__ |
+
+Takeaway:
+- Transformers for longer sequences score ok even when frozen
+- Big generalization gap between test set and train set (generalization gap ~30.0) even with frozen model+KNN
 
 ## Fine-tuning models on political bias
 
@@ -157,12 +188,7 @@ Takeaway:
 
 ## Multitask + flipped labels
 
-What happens if we flip labels for publishers? 👉 Sentences are shuffle in whatever order?
-
-
-| model          | details                       | params                     | bias dev | bias test | publisher dev | publisher test |
-|----------------|-------------------------------|----------------------------|----------|-----------|---------------|----------------|
-| electra-small  | cae all_negatives + multitask | lr=5e-5, bsz=32, epochs=40 | 95.83    | 68.33     | 79.69         | 0.0            |
-
-
 ![Visualizing how train set changes using multitask CEA + flipped labels](assets/multitask-visualisation.png)
+
+- Current focus: create a strong objective for pushing same publishers apart
+- So far it has not been successful (train f1 for publishers still scores around 50.0)
