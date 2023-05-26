@@ -71,8 +71,9 @@ trainer.fine_tune('resources/taggers/small-transformer-alignment',
 | electra-base      | 80.48     | 69.07     | 68.46                   | 85.68      | 56.17                  | 43.83       |
 | bert-base-cased   | __87.28__ | __78.49__ | __76.95__               | __92.43__  | 56.07                  | __50.53__   |
 | roberta-base      | 84.88     | 74.26     | 69.82                   | 91.41      | __58.18__              | 47.29       |
-| concat all models | 85.99     | 75.54     | 72.36                   |            | 57.68                  |             |
+| concat all models | 85.99     | 75.54     | 72.36                   | 90.98      | 57.68                  |             |
 
+- Takeaway from concatenating models + KNN: the issue here is not generalization (we don't fit the data to 100%). It might be 1) feature normalization 👈 2) it just scores in between because we don't have any parameters to disregard bad features
 - Table 2. uses frozen DocumentPoolEmbeddings (average all tokens) and performs KNN (n=5) on the complete dataset (train+dev+test)
 
 | Model             | TREC6     | TREC50    | Communicative functions | SST Binary | SST Granular (5 class) | Go Emotions |
