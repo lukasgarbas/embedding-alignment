@@ -58,7 +58,9 @@ trainer.fine_tune('resources/taggers/small-transformer-alignment',
                   )
 ```
 
-# Excurse: evaluating frozen models + KNN on different text classifaction datasets
+# Excurse
+<details>
+  <summary>evaluating frozen models + KNN on different text classifaction datasets in Flair</summary>
 
 - Table 1. uses frozen CLS token and performs KNN (n=5) on the complete dataset (train+dev+test)
 
@@ -82,8 +84,10 @@ trainer.fine_tune('resources/taggers/small-transformer-alignment',
 | roberta-base      | 85.52     | 77.17     | 73.83                   | 92.04      | __58.49__              | 48.6        |
 
 
-- Question: can we tell which model (encoder) is most best suited for a task by looking how well frozen model + KNN is able to classify the data (initial knowledge in LM)? 
-- How I see it so far: It's a good indicator but it's not precise. Fine-tuning a similar model (even when it's weaker initially) can outperform others. E.g. electra scores slightly better than others when fine-tuned.   
+- Question: can we tell which model (encoder) is best suited for a task by looking how well frozen model + KNN is able to classify the data (initial knowledge in LM)? 
+- How I see it so far: It's a good indicator, but it's not precise. Fine-tuning a similar model (even when it's weaker initially) can outperform others. E.g. electra scores slightly better than others when fine-tuned.   
+
+</details>
 
 # Results
 
