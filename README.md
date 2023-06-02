@@ -64,17 +64,19 @@ trainer.fine_tune('resources/taggers/small-transformer-alignment',
 
 - Question: can we tell which model (encoder) is best suited for a task by looking how well frozen model + KNN is able to classify the data (initial knowledge in LM)? 
 - How I see it so far: It's a good indicator, but it's not precise. Fine-tuning a similar model (even when it's weaker initially) can outperform others. E.g. electra scores slightly better than others when fine-tuned.   
-- Table 1. uses frozen CLS token and performs KNN (n=5) on the complete dataset (train+dev+test)
+- Table 1. uses frozen CLS token and performs KNN (n=5)
+- Performs KNN on the complete dataset (train+dev+test)
 
 | Model             | TREC6     | TREC50    | Communicative functions | SST Binary | SST Granular (5 class) | Go Emotions |
 |-------------------|-----------|-----------|-------------------------|------------|------------------------|-------------|
-| all-MiniLM-L12-v2 | 65.66     | 53.01     | 61.62                   | 92.61      | 55.16                  | 47.15       |
+| all-MiniLM-L12-v2 | 65.66     | 53.01     | 61.62                   | __92.61__  | 55.16                  | 47.15       |
 | electra-small     | 76.06     | 64.33     | 65.53                   | 84.66      | 52.22                  | 44.34       |
 | electra-base      | 80.48     | 69.07     | 68.46                   | 85.68      | 56.17                  | 43.83       |
-| bert-base-cased   | __87.28__ | __78.49__ | __76.95__               | __92.43__  | 56.07                  | __50.53__   |
+| bert-base-cased   | __87.28__ | __78.49__ | __76.95__               | 92.43      | 56.07                  | __50.53__   |
 | roberta-base      | 84.88     | 74.26     | 69.82                   | 91.41      | __58.18__              | 47.29       |
 | concat all models | 85.99     | 75.54     | 72.36                   | 90.98      | 57.68                  |             |
 
+- electra-base CLS (all layer mean) SST2: 87.24 (still not as good as bert-base)
 - Takeaway from concatenating models + KNN: the issue here is not generalization (we don't fit the data to 100%). It might be 1) feature normalization 👈 2) it just scores in between because we don't have any parameters to disregard bad features
 - Table 2. uses frozen DocumentPoolEmbeddings (average all tokens) and performs KNN (n=5) on the complete dataset (train+dev+test)
 
@@ -85,6 +87,29 @@ trainer.fine_tune('resources/taggers/small-transformer-alignment',
 | electra-base      | 83.87     | 72.88     | 70.31                   | 89.61      | 55.98                  | 46.01       |
 | bert-base-cased   | __87.26__ | __79.39__ | __76.76__               | __92.8__   | 58.05                  | __49.02__   |
 | roberta-base      | 85.52     | 77.17     | 73.83                   | 92.04      | __58.49__              | 48.6        |
+
+- electra-base token pool (all layer mean) SST2: 93.84 -> This would hold the hypothesis that strongest frozen = strongest fine-tuned
+- TODO: prepare the same table with documentpool layermean + KNN5:
+
+| Model             | TREC6     | TREC50    | Communicative functions | SST Binary | SST Granular (5 class) | Go Emotions |
+|-------------------|-----------|-----------|-------------------------|------------|------------------------|-------------|
+| all-MiniLM-L12-v2 | 87.2      | 78.81     | 73.83                   | 93.37      | 57.11                  |             |
+| electra-small     | 82.95     | 72.82     | 71.48                   | 92.06      | 55.23                  |             |
+| electra-base      | 87.15     | 78.48     | 77.73                   | __93.84__  | 58.31                  |             |
+| bert-base-cased   | __87.47__ | __80.49__ | 77.34                   | 93.12      | 57.93                  |             |
+| roberta-base      | 86.22     | 78.28     | __77.83__               |            | __59.16__              |             |
+
+
+Fine-tuning scores:
+- classic: train on train set, pick based on dev score, evaluate on test:
+
+| Model             | TREC6    | TREC50   | Communicative functions | SST Binary | SST Granular (5 class) | Go Emotions |
+|-------------------|----------|----------|-------------------------|------------|------------------------|-------------|
+| all-MiniLM-L12-v2 | 96.8     | 92.6     | 77.0                    | 92.0       |                        |             |
+| electra-small     | 96.2     | 89.8     | 71.57                   | 91.2       |                        |             |
+| electra-base      | 97.2     | __92.6__ | 82.5                    | __95.1__   |                        |             |
+| bert-base-cased   | __97.4__ | __92.6__ | __84.0__                | 93.5       |                        |             |
+| roberta-base      | __97.4__ | __92.6__ | 82.7                    |            |                        |             |
 
 
 </details>
